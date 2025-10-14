@@ -315,17 +315,233 @@ for steps in range(100): # increase number of steps for good results...
 
 print(loss.item())
 
-batch_size = 32
-for steps in range(10000): # increase number of steps for good results...
+# Train the super-simple bigram language model and print its loss in iterative steps.
+for i in range(10):
+    print("- " * 25)
+    print(f"Training Step {i+1}:")
 
-    # sample a batch of data
-    xb, yb = get_batch('train')
+    batch_size = 32
+    for steps in range(100): # increase number of steps for good results...
 
-    # evaluate the loss
-    logits, loss = m(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+        # sample a batch of data
+        xb, yb = get_batch('train')
 
-print(loss.item())
+        # evaluate the loss
+        logits, loss = m(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+    print(loss.item())
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 1:
+# 2.4313716888427734
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 2:
+# 1.1796472072601318
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 3:
+# 0.5764368772506714
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 4:
+# 0.3542204201221466
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 5:
+# 0.26632434129714966
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 6:
+# 0.2253868579864502
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 7:
+# 0.20394669473171234
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 8:
+# 0.19186492264270782
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 9:
+# 0.18474386632442474
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Training Step 10:
+# 0.18042907118797302
+
+
+# Generate some text using the trained bigram language model
+
+print(decode(m.generate(idx = torch.zeros((1, 1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
+
+# The output ends up being not Shakespeare-like at all, because a bigram model is too simple.  It only 
+# looks at the current token to predict the next token, and doesn't take into account any longer context. 
+#  Modern LLMs use transformers that can take into account much more context.
+
+# Output: 
+# v,vyD&yFf,RGSjRpwHotXeDn;L;w!U,rwWT;X$
+# Du'TeYGjs
+# bRZv'mm?ErgUE3Kpp$HAbyly?IT:CKTbfIFOWkIFMk!.cRJa;vW!UyJFhuF$ph q-w&SAUCoQYjZ?o?piCvEPzYUBGBCxfBCEzWkVSFZd&AUE3vPZq-BoibRlgQ'xIV?Qpd,vYNCFi
+# G&3KHT:Cu3EHd fqR:CDbf:.cM$- CHYaICJuCOoCSJ&A'KuMlt;vBHpa!JOKt3SPNS3fir'q$ CKBPdJM&
+# SSxTb-w
+# SjKHT:aVwI!CxaW
+# pgdli
+# oXLb3DxTrd,SPhsuR!zeDTsVcyalveaPhObVzhsr&ZM:.iA-KoCDUQj& CDHUylFFJtRjKR
+# P &P
+# -eNC
+# P CiP &a?;mt3
+# Sq,SKCAeY:EYSP,,SGgYS.Yw'PlirgOC-?stNemuB?oc.&!I-PTHnuxHWWD.cba!zP?u;APdat$HCMkgxqAaNCWKBzKuxkRly,:qfM
+
+
+# ------------------------ Toy Example: From Simple Averages to Self-Attention ------------------------
+# A bigram model is very simplistic — it predicts the next token using only the current token.
+# Modern models (like transformers) can consider a much longer context of previous tokens when
+# predicting the next token. For language models (e.g., GPT), this context is *causal* — the model
+# can look at previous tokens but never future ones.
+#
+# Below we step through progressively more advanced "weighted aggregation" techniques that lead up
+# to the idea of *self-attention*. These first three versions are fixed (non-learned) aggregations.
+# The final version uses learned, content-based weights — the essence of self-attention.
+
+# Self-attention - Is a mechanism that allows a model to determine how much each token in a sequence 
+# should attend to (or weigh) every other token when computing its representation.  Or in other words,
+# how much attention should be paid to other tokens in the sequence when processing a particular token.
+
+
+# Toy example illustrating how matrix multiplication can be used for a "weighted aggregation"
+torch.manual_seed(42)
+a = torch.tril(torch.ones(3, 3))
+a = a / torch.sum(a, 1, keepdim=True)
+b = torch.randint(0,10,(3,2)).float()
+c = a @ b
+# Print to console to visualize matrix multiplication
+print(f'a:\n{a}\n------------------------------------')
+print(f'b:\n{b}\n------------------------------------')
+print(f'c:\n{c}\n------------------------------------')
+
+
+
+torch.manual_seed(1337)
+# Batch / Time / Channel (B,T,C)
+B, T, C = 4, 8, 2
+x = torch.randn(B, T, C)
+print(x.shape)
+# torch.Size([4, 8, 2])
+
+
+# ----- Version 1: Average of all previous tokens (Super simplistic) -----
+# For each time step t, compute the mean of all tokens up to t (prefix mean).
+
+# print(f"\nVersion 1: Average of all previous tokens (Super simplistic)")
+xbow = torch.zeros((B, T, C))
+for b in range(B):
+    for t in range(T):
+        # Slice out the prefix of tokens up to and including position t
+        xprev = x[b, :t+1]
+        # Compute the mean of the prefix tokens
+        xbow[b, t] = torch.mean(xprev, 0)
+
+        # print(f"b={b}, t={t}, xprev.shape={xprev.shape} => xbow[b,t]={xbow[b,t]}")
+
+
+# ----- Version 2: Matrix multiplication for weighted aggregation -----
+# Instead of loops, use a lower-triangular weight matrix to achieve the same prefix averaging.
+# This is exactly what self-attention does, but with learned weights instead of fixed averaging.
+
+# print(f"\nVersion 2: Matrix multiplication for weighted aggregation")
+wei = torch.tril(torch.ones(T, T))
+wei = wei / wei.sum(1, keepdim=True)
+# Broadcasting allows (T,T) @ (B,T,C) -> (B,T,C)
+xbow2 = wei @ x # Batch matrix multiplication: (B,T,T) @ (B,T,C) -> (B,T,C)
+# print(f"xbow2.shape: {xbow2.shape}")
+# print(f"xbow[0]: {xbow[0]}")
+# print(f"xbow2[0]: {xbow2[0]}")  
+print(torch.allclose(xbow, xbow2))  # True
+
+
+# ----- Version 3: Use Softmax (smooth weighting) -----
+# Replace the uniform averaging with softmax-based weights.
+# Softmax gives a smooth weighting, but here with uniform inputs it ends up the same as mean.
+
+# print(f"\nVersion 3: Use Softmax (smooth weighting)")
+tril = torch.tril(torch.ones(T, T))
+wei = torch.zeros((T, T))
+wei = wei.masked_fill(tril == 0, float('-inf'))  # mask future positions
+wei = F.softmax(wei, dim=-1)                    # normalized weights
+xbow3 = wei @ x
+# print(f"xbow3.shape: {xbow3.shape}")
+# print(f"xbow[0]: {xbow[0]}")
+# print(f"xbow3[0]: {xbow3[0]}")
+
+print(torch.allclose(xbow, xbow3))  # True — uniform softmax gives same mean
+
+
+# ----- Version 4: Self-Attention -----
+# Now we make the weights *learned* and *data-dependent* using queries and keys.
+
+print(f"\nVersion 4: Self-Attention")
+torch.manual_seed(1337)
+B, T, C = 4, 8, 32  # batch, time, channels
+x = torch.randn(B, T, C)
+
+head_size = 16
+key   = nn.Linear(C, head_size, bias=False)
+query = nn.Linear(C, head_size, bias=False)
+value = nn.Linear(C, head_size, bias=False)
+
+k = key(x)   # (B, T, 16)
+q = query(x) # (B, T, 16)
+v = value(x) # (B, T, 16)
+
+# Compute scaled dot-product attention scores
+wei = (q @ k.transpose(-2, -1)) / (head_size ** 0.5)  # (B, T, T)
+
+# Apply causal mask (no looking ahead)
+tril = torch.tril(torch.ones(T, T))
+wei = wei.masked_fill(tril == 0, float('-inf'))
+
+# Softmax to convert scores to attention weights
+wei = F.softmax(wei, dim=-1)
+
+# Weighted aggregation of values
+out = wei @ v  # (B, T, head_size)
+
+print(f"out.shape: {out.shape}")
+print(f"out[0]: {out[0]}")
+print(f"wei[0]: {wei[0]}")
+
+
+# ------------------------------------------------------------------------------------------
+# Notes:
+# - Versions 1–3 use fixed averaging; Version 4 learns data-dependent weights.
+# - The lower-triangular mask enforces causality (each token sees only the past).
+# - The division by sqrt(head_size) stabilizes gradients.
+# - Real transformer layers also include multiple heads, positional encodings, and projections.
+# ------------------------------------------------------------------------------------------
+
+
+
+# Attention is a communication mechanism. Can be seen as nodes in a directed graph looking at each 
+# other and aggregating information with a weighted sum from all nodes that point to them, with 
+# data-dependent weights.
+
+# There is no notion of space. Attention simply acts over a set of vectors. This is why we need to 
+# positionally encode tokens.
+
+# Each example across batch dimension is of course processed completely independently and never 
+# "talk" to each other
+
+# In an "encoder" attention block just delete the single line that does masking with tril, allowing 
+# all tokens to communicate. This block here is called a "decoder" attention block because it has 
+# triangular masking, and is usually used in autoregressive settings, like language modeling.
+
+# "self-attention" just means that the keys and values are produced from the same source as queries. 
+# In "cross-attention", the queries still get produced from x, but the keys and values come from some 
+# other, external source (e.g. an encoder module)
+
+# "Scaled" attention additional divides wei by 1/sqrt(head_size). This makes it so when input Q,K are 
+# unit variance, wei will be unit variance too and Softmax will stay diffuse and not saturate too much. 
+# Illustration below
+
+
+# ----------------- Scaled vs Unscaled Dot Product Attention ---------
+k = torch.randn(B,T,head_size)
+q = torch.randn(B,T,head_size)
+wei = q @ k.transpose(-2, -1) * head_size**-0.5
 
